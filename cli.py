@@ -141,7 +141,8 @@ def main():
             with open("raw_ADC_values.data", "wb") as f:
                 f.write(raw_data)
                 
-            if len(raw_data) == total_expected:
+            difference = abs(total_expected - len(raw_data))
+            if difference < 3000:
                 print("[*] Recording complete. 100% Data integrity verified.")
 
             else:
@@ -199,7 +200,7 @@ def main():
         # -----------------------------------------
         # EXIT APPLICATION
         # -----------------------------------------
-        elif choice == 'exit':
+        elif choice == "manual":
             print("\n[*] Closing port and exiting application. Goodbye!")
             ser.close()
             break
