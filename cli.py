@@ -96,7 +96,7 @@ def main():
 
     while True:
         print_menu()
-        choice = input("\nSelect an operating mode (manual, distace, exit)").strip().lower()
+        choice = input("\nSelect an operating mode (manual, distace, exit): ").strip().lower()
 
         if choice == 'manual':
             print("\n" + "-"*40)
