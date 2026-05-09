@@ -21,8 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-	#include <stdio.h>
-	#include <string.h>
+#include <stdio.h>
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -64,20 +64,20 @@ static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void delay_us(uint16_t delay);
 void HCSR04_Read(void);
-static void SPI1_WriteByte(uint8_t tx_byte);
+// static void SPI1_WriteByte(uint8_t tx_byte);
 static void SPI1_WriteTwoBytes(uint16_t tx_data);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void SPI1_WriteByte(uint8_t tx_byte)
+/*static void SPI1_WriteByte(uint8_t tx_byte)
 {
 	while (!LL_SPI_IsActiveFlag_TXE(SPI1)) {;}
 	LL_SPI_TransmitData8(SPI1, tx_byte);
 	while(LL_SPI_IsActiveFlag_BSY(SPI1)) {;}
 	LL_SPI_ClearFlag_OVR(SPI1);
-}
+}*/
 
 static void SPI1_WriteTwoBytes(uint16_t tx_data)
 {
@@ -446,7 +446,8 @@ static void MX_GPIO_Init(void)
 	{
 		if (hadc == &hadc1) {
 			raw_ADC_value = HAL_ADC_GetValue(&hadc1);
-			SPI1_WriteTwoBytes(raw_ADC_value);
+			uint16_t tx_data = 0xA000 | (raw_ADC_value & 0x0FFF);
+			SPI1_WriteTwoBytes(tx_data);
 		}
 	}
 

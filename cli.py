@@ -4,134 +4,209 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 
+def print_header():
+    print("\n" + "=" * 55)
+    print("\tECE2071 Audio Sampling System\t")
+    print("="*55)
 
-def generate_reports(file_path, sample_rate=44100):
-    print("Generating wave plot and CSV report...\n")
+def print_menu():
+    print("\n[ MAIN MENU ]")
+    print(" > 'manual' : Record for a fixed duration")
+    print(" > 'distance' - Record via ultrasonic sensor")
+    print(" > 'exit' : Close the application")
 
-    raw_bytes = np.fromfile(file_path, dtype=np.uint8)
-    n = len(raw_bytes) // 3
-    a = (raw_bytes[0:n*3:3].astype(np.uint16) << 4) | (raw_bytes[1:n*3:3] >> 4)
-    b = ((raw_bytes[1:n*3:3].astype(np.uint16) & 0x0F) << 8) | raw_bytes[2:n*3:3]
+def get_output_preferences():
+    print("\n[ Output Format Configuration ]")
+    print("Select the output files you wish to generate:")
+    while True:
+        wav = input(" > Generate .wav audio file? (y/n): ")
+        wav = wav.strip().lower() == 'y'
 
-    samples = np.empty(n * 2, dtype=np.int32)
-    samples[0::2] = (a.astype(np.int32) - 2048) * 16
-    samples[1::2] = (b.astype(np.int32) - 2048) * 16
+        png = input(" > Generate .png waveform plot? (y/n): ")
+        png = png.strip().lower() == 'y'
 
-    duration = len(samples) / sample_rate
-    time_axis = np.linspace(0, duration, len(samples))
+        csv = input(" > Generate .csv raw data log? (y/n): ")
+        csv = csv.strip().lower() == 'y'
 
-    csv_filename = "audio_log.csv"
-    np.savetxt(csv_filename, np.column_stack((time_axis, samples)),
-               delimiter=",", header=f"Sample rate (Hz): {sample_rate}\nTime (s), Amplitude")
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(time_axis, samples, linewidth=0.5)
-    plt.title(f"Audio Waveform Analysis (Fs = {sample_rate} Hz)", fontsize=15)
-    plt.xlabel("Time (seconds)", fontsize=12)
-    plt.ylabel("Amplitude", fontsize=12)
-    plt.savefig("waveform_plot.png", dpi=300)
-    plt.close()
-    print("All reports generated\n")
-        
-
-# Connect to the serial port
-ser = serial.Serial(port="COM9", baudrate=921600, bytesize=8, parity="N", stopbits=1, timeout=3)
-print(f"Connected to {ser.name}")
-commands = ["manual", "distance"]
-
-
-while True:
-    user_input = input("Enter mode: ").strip()
-    bytes = user_input.ljust(8)
-    ser.write(bytes.encode())
-
-    if user_input not in commands:
-        print("Invalid command! Please enter 'distance' or 'manual'")
-        continue
-
-    if user_input == "manual":
-        duration = int(input("Enter duration in seconds: "))
-        duration_bytes = str(duration).ljust(4).encode()
-        ser.write(duration_bytes)
-
-    print("Command sent!\n")
-
-    total_data = 50 * (10 ** 3)
-    chunk_data = 500
-    input_data = 0
-
-    print("Recording audio...")
-    ser.reset_input_buffer()
-    started_receiving = False
-    file_1 = open("raw_ADC_values.data", "wb")
-
-    if user_input == "manual":
-        # Calculate exactly how many bytes 6 seconds is (6 * 66150 = 396900)
-        total_expected = int(duration * 66150)
-        print(f"Expecting exactly {total_expected} bytes. Recording...")
-        
-        # Give Windows permission to wait the full 6 seconds
-        ser.timeout = duration + 2 
-        
-        # THE NUCLEAR READ: Grab the entire file in one giant bite.
-        # Python will literally freeze here until the STM32 finishes. No loops!
-        x = ser.read(total_expected)
-        
-        # Save it
-        file_1.write(x)
-        
-        if len(x) == total_expected:
-            print(f"\nPerfect Success! Captured all {len(x)} bytes.")
+        if not(wav or png or csv):
+            print("Error: No outputs selected. Please input at least one output.")
+            continue
+            
         else:
-            print(f"\nWarning: Only captured {len(x)} bytes before timing out.")
+            break
+    
+    return wav, png, csv
+
+def process_data(file_path, wav, png, csv, sample_rate=44100):
+    print("\n[ Processing Data ]")
+    
+    # 1. WAV Generation (Handled by C Executable)
+    if wav:
+        print(" -> Compiling/Converting to .wav format...")
+        try:
+            subprocess.run(["convert.exe", file_path, "recorded_audio.wav"], check=True)
+            print("    [Success] Saved 'recorded_audio.wav'")
+        except FileNotFoundError:
+            print("    [Error] 'convert.exe' not found in directory.")
             
-        print("Manual recording complete!")
+    # 2. Numpy/Matplotlib Math (Only run if user asked for CSV or PNG)
+    if png or csv:
+        print(" -> Decoding raw bits for graphing/logging...")
+        raw_bytes = np.fromfile(file_path, dtype=np.uint8)
+        n = len(raw_bytes) // 3
         
+        # Unpack the 3-byte chunks into two 12-bit samples
+        a = (raw_bytes[0:n*3:3].astype(np.uint16) << 4) | (raw_bytes[1:n*3:3] >> 4)
+        b = ((raw_bytes[1:n*3:3].astype(np.uint16) & 0x0F) << 8) | raw_bytes[2:n*3:3]
+
+        samples = np.empty(n * 2, dtype=np.int32)
+        samples[0::2] = (a.astype(np.int32) - 2048) * 16
+        samples[1::2] = (b.astype(np.int32) - 2048) * 16
+
+        duration = len(samples) / sample_rate
+        time_axis = np.linspace(0, duration, len(samples))
+
+        # CSV Generation
+        if csv:
+            csv_filename = "audio_log.csv"
+            np.savetxt(csv_filename, np.column_stack((time_axis, samples)),
+                       delimiter=",", header=f"Sample rate (Hz): {sample_rate}\nTime (s), Amplitude")
+            print(f"    [Success] Saved '{csv_filename}'")
+            
+    
+        if png:
+            plt.figure(figsize=(12, 6))
+            plt.plot(time_axis, samples, linewidth=0.5, color='b')
+            plt.title(f"Audio Waveform Analysis (Fs = {sample_rate} Hz)", fontsize=15)
+            plt.xlabel("Time (seconds)", fontsize=12)
+            plt.ylabel("Amplitude (Scaled)", fontsize=12)
+            plt.grid(True, alpha=0.3)
+            plt.savefig("waveform_plot.png", dpi=300)
+            plt.close()
+            print("    [Success] Saved 'waveform_plot.png'")
+
+def main():
+    # Connect to serial port
+
+    ser = serial.Serial(port="COM9", baudrate=921600, bytesize=8, parity="N", stopbits=1, timeout=3)
+    print(f"Connected to {ser.name}")
+    commands = ["manual", "distance"]
+
+    print_header()
+
+    while True:
+        print_menu()
+        choice = input("\nSelect an operating mode (manual, distace, exit)").strip().lower()
+
+        if choice == 'manual':
+            print("\n" + "-"*40)
+            print("       MANUAL RECORDING MODE       ")
+            print("-"*40)
+            
+            try:
+                duration = int(input("Enter duration to record (in seconds): "))
+                if duration <= 0:
+                    print("[!] Please enter a duration above 0.")
+                    continue
+            except ValueError:
+                print("Invalid input. Please enter a whole number.")
+                continue
+                
+            wav, png, csv = get_output_preferences()
+
+            # Command the STM32
+            ser.write(b"manual  ")
+            duration_bytes = str(duration).ljust(4).encode()
+            ser.write(duration_bytes)
+
+            total_expected = int(duration * 66150)
+            print(f"\n[*] Recording for {duration} seconds... Please wait.")
+            
+            ser.reset_input_buffer()
+            
+            raw_data = bytearray()
+            start_time = time.time()
+            
+            while len(raw_data) < total_expected:
+                bytes_waiting = ser.in_waiting
+                if bytes_waiting > 0:
+                    # Read what's available, but don't over-read past the expected total
+                    chunk_size = min(bytes_waiting, total_expected - len(raw_data))
+                    raw_data.extend(ser.read(chunk_size))
+                
+                # Timeout safety net (Duration + 2.0 seconds)
+                if time.time() - start_time > duration + 2.0:
+                    break
+            
+            with open("raw_ADC_values.data", "wb") as f:
+                f.write(raw_data)
+                
+            if len(raw_data) == total_expected:
+                print("[*] Recording complete. 100% Data integrity verified.")
+
+            else:
+                print(f"[!] Warning: Expected {total_expected} bytes but captured {len(raw_data)}.")
+
+            process_data("raw_ADC_values.data", wav, png, csv)
+
+        # -----------------------------------------
+        # MODE 2: DISTANCE TRIGGER
+        # -----------------------------------------
+        elif choice == "distance":
+            print("\n" + "-"*40)
+            print("       DISTANCE TRIGGER MODE       ")
+            print("-"*40)
+            print("Info: The ultrasonic sensor will reliably trigger at <10cm.")
+            print("      Recording will automatically stop 1.5s after the object is removed.\n")
+            
+            wav, png, csv = get_output_preferences()
+
+            ser.write(b"distance")
+            print("\n[*] Distance Mode Active. [Press Ctrl+C to return to Main Menu]")
+            
+            try:
+                while True:
+                    print("\nWaiting for ultrasonic trigger... (Wave hand to start)")
+                    ser.reset_input_buffer()
+                    started_receiving = False
                     
-    elif user_input == "distance":
-            print("Waiting for distance sensor to trigger... wave your hand!") # Let you know it's in the loop
-            
-            while True:
-                bytestoRead = ser.in_waiting
-                
-                # Print on the same line so it doesn't flood your terminal
-                print(f"Polling... Bytes in waiting: {bytestoRead}", end='\r') 
-                
-                if bytestoRead > 0:
-                    x = ser.read(bytestoRead)
-                    file_1.write(x)
+                    with open("raw_ADC_values.data", "wb") as file_1:
+                        last_receive_time = time.time()
+                        
+                        while True:
+                            bytestoRead = ser.in_waiting
+                            
+                            if bytestoRead > 0:
+                                file_1.write(ser.read(bytestoRead))
+                                last_receive_time = time.time()
+                                
+                                if not started_receiving:
+                                    print("[*] Object Detected! Recording audio...") 
+                                    started_receiving = True
+                            else:
+                                # Wait for 1 full second of silence before closing the file
+                                if started_receiving and (time.time() - last_receive_time > 0.5):
+                                    print("[*] Object removed. Sensor cooldown finished.")
+                                    break 
+                                    
+                    # Once a trigger finishes, process the data immediately
+                    process_data("raw_ADC_values.data", wav, png, csv)
+                    
+            except KeyboardInterrupt:
+                print("\n\n[*] Exiting Distance Trigger Mode...")
+                # Optional: Send a dummy byte or command to ensure STM32 state clears if needed
 
-                    if not started_receiving:
-                        print("\nTransmission started!") # \n pushes it to a new line past the polling text
-                        started_receiving = True
-                else:
-                    if started_receiving:
-                        print("\nSensor blocked transmission.\n")
-                        break  
-            
+        # -----------------------------------------
+        # EXIT APPLICATION
+        # -----------------------------------------
+        elif choice == 'exit':
+            print("\n[*] Closing port and exiting application. Goodbye!")
+            ser.close()
+            break
 
-    file_1.close()
-    print("\nRecording complete! Data saved to file.\n")
+        else:
+            print("\n[!] Invalid selection. Please choose 1, 2, or 3.")
 
-    print("Converting to .wav file...")
-    output_filename = "recorded_audio.wav"
-
-
-    subprocess.run(["convert.exe", "raw_ADC_values.data", output_filename], check = True)
-    raw = np.fromfile("raw_ADC_values.data", dtype=np.uint8)
-    print("\n--- HEX DUMP (First 12 Bytes) ---")
-    try:
-        with open("raw_ADC_values.data", "rb") as f:
-            bytes_read = f.read(12)
-            # This prints the raw bytes as two-digit Hex numbers
-            print(" ".join([f"{b:02X}" for b in bytes_read]))
-    except Exception as e:
-        print("Could not read hex dump:", e)
-    n = len(raw) // 3
-    a = (raw[0:n*3:3].astype(np.uint16) << 4) | (raw[1:n*3:3] >> 4)
-    b = ((raw[1:n*3:3].astype(np.uint16) & 0x0F) << 8) | raw[2:n*3:3]
-    samples = np.concatenate([a, b])
-    print("min:", samples.min(), "max:", samples.max(), "mean:", samples.mean())
-    print("Expected mean ~2048 for centered audio")
-    generate_reports("raw_ADC_values.data")
+if __name__ == "__main__":
+    main()
     

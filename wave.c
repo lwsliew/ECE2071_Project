@@ -49,8 +49,8 @@ int main(int argc, char *argv[])
         .fmtlen = 16,
         .audioformat = 1,
         .numchannel = 1,
-        .samplingrate = 44100, // NEW: 44.1 ksps
-        .bytesec = 88200,      // NEW: 44100 * 2 bytes
+        .samplingrate = 44012, // NEW: 44.1 ksps
+        .bytesec = 88024,      // NEW: 44100 * 2 bytes
         .bytesample = 2,       // NEW: 2 bytes per sample
         .bitssample = 16,      // Standard container for 12-bit data
         .header = {'d', 'a', 't', 'a'},

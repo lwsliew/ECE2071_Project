@@ -80,8 +80,9 @@ uint16_t filter_buffer[3] = {0};
 int sum = 0;
 uint16_t last_valid = AUDIO_MIDPOINT;
 uint16_t spi_rx_buffer[AUDIO_BUFFER_SIZE];
-uint8_t tx_buf_a[AUDIO_BUFFER_SIZE * 3 / 4];
-uint8_t tx_buf_b[AUDIO_BUFFER_SIZE * 3 / 4];
+uint8_t tx_buf_a[(AUDIO_BUFFER_SIZE * 3 / 4) + 2];
+uint8_t tx_buf_b[(AUDIO_BUFFER_SIZE * 3 / 4) + 2];
+uint8_t temp_byte;
 
 /* USER CODE END PV */
 
@@ -570,17 +571,41 @@ void process_audio(uint16_t start_idx, uint16_t end_idx, uint8_t *tx_buf)
   {
     int pack_idx = 0;
 
+    static uint16_t last_good_a = AUDIO_MIDPOINT;
+    static uint16_t last_good_b = AUDIO_MIDPOINT;
+
     for (int i = start_idx; i < end_idx; i += 2)
     {
       uint16_t raw_a = spi_rx_buffer[i];
       uint16_t raw_b = spi_rx_buffer[i + 1];
+      uint16_t a, b;
+
+      if ((raw_a & 0xF000) == 0xA000)
+      {
+        a = raw_a & 0x0FFF;
+      }
+
+      else
+      {
+        a = last_good_a;
+      }
+
+      if ((raw_b & 0xF000) == 0xA000)
+      {
+        b = raw_b & 0x0FFF;
+      }
+
+      else
+      {
+        b = last_good_b;
+      }
 
       // 2. NOW it is safe to mask the 12 bits and filter
-      uint16_t a = outlier_rejection(raw_a & 0x0FFF, &last_valid);
+      a = outlier_rejection(a & 0x0FFF, &last_valid);
       a = moving_average_filter(filter_buffer, &sum, current_pos, 3, a);
       current_pos = (current_pos + 1) % 3;
 
-      uint16_t b = outlier_rejection(raw_b & 0x0FFF, &last_valid);
+      b = outlier_rejection(b & 0x0FFF, &last_valid);
       b = moving_average_filter(filter_buffer, &sum, current_pos, 3, b);
       current_pos = (current_pos + 1) % 3;
 
