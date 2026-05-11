@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
- ******************************************************************************
- * @file           : main.c
- * @brief          : Main program body
- ******************************************************************************
- * @attention
- *
- * Copyright (c) 2026 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- */
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -34,7 +34,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define AUDIO_MIDPOINT 2048
-#define DEVIATION_LIMIT 700
+#define DEVIATION_LIMIT 500
 #define AUDIO_BUFFER_SIZE 4000
 
 /* USER CODE END PD */
@@ -76,13 +76,20 @@ int remaining_seconds = 0;
 uint16_t tick_counter = 0;
 int distance_cooldown = 0;
 int current_pos = 0;
-uint16_t filter_buffer[3] = {0};
-int sum = 0;
+uint16_t filter_buffer_a[3] = {AUDIO_MIDPOINT, AUDIO_MIDPOINT, AUDIO_MIDPOINT};
+uint16_t filter_buffer_b[3] = {AUDIO_MIDPOINT, AUDIO_MIDPOINT, AUDIO_MIDPOINT};
+int sum_a = AUDIO_MIDPOINT * 3;
+int sum_b = AUDIO_MIDPOINT * 3;
+int current_pos_a = 0;
+int current_pos_b = 0;
+int recording_just_started = 0;
+
 uint16_t last_valid = AUDIO_MIDPOINT;
 uint16_t spi_rx_buffer[AUDIO_BUFFER_SIZE];
-uint8_t tx_buf_a[(AUDIO_BUFFER_SIZE * 3 / 4) + 2];
-uint8_t tx_buf_b[(AUDIO_BUFFER_SIZE * 3 / 4) + 2];
+uint8_t tx_buf_a[(AUDIO_BUFFER_SIZE * 3 / 4) + 3];
+uint8_t tx_buf_b[(AUDIO_BUFFER_SIZE *3 / 4) + 3];
 uint8_t temp_byte;
+
 
 /* USER CODE END PV */
 
@@ -100,7 +107,7 @@ static void MX_TIM7_Init(void);
 void HCSR04_Read(void);
 void delay_us(uint16_t delay);
 uint16_t moving_average_filter(uint16_t *arr, int *sum, int pos, int len, uint16_t nextNum);
-uint16_t outlier_rejection(uint16_t sample, uint16_t *last_valid);
+uint16_t outlier_rejection(uint16_t sample ,uint16_t *last_valid);
 void process_audio(uint16_t start_idx, uint16_t end_idx, uint8_t *tx_buf);
 
 /* USER CODE END PFP */
@@ -111,9 +118,9 @@ void process_audio(uint16_t start_idx, uint16_t end_idx, uint8_t *tx_buf);
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 
@@ -168,30 +175,30 @@ int main(void)
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-   */
+  */
   if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Configure LSE Drive Capability
-   */
+  */
   HAL_PWR_EnableBkUpAccess();
   __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE | RCC_OSCILLATORTYPE_MSI;
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE|RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
@@ -209,8 +216,9 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
@@ -222,15 +230,15 @@ void SystemClock_Config(void)
   }
 
   /** Enable MSI Auto calibration
-   */
+  */
   HAL_RCCEx_EnableMSIPLLMode();
 }
 
 /**
- * @brief SPI1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_SPI1_Init(void)
 {
 
@@ -262,13 +270,14 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
 }
 
 /**
- * @brief TIM1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM1_Init(void)
 {
 
@@ -284,7 +293,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 32 - 1;
+  htim1.Init.Prescaler = 32-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 65535;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -321,13 +330,14 @@ static void MX_TIM1_Init(void)
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
+
 }
 
 /**
- * @brief TIM6 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM6_Init(void)
 {
 
@@ -341,7 +351,7 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 32 - 1;
+  htim6.Init.Prescaler = 32-1;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 65535;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -358,13 +368,14 @@ static void MX_TIM6_Init(void)
   /* USER CODE BEGIN TIM6_Init 2 */
 
   /* USER CODE END TIM6_Init 2 */
+
 }
 
 /**
- * @brief TIM7 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief TIM7 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM7_Init(void)
 {
 
@@ -378,9 +389,9 @@ static void MX_TIM7_Init(void)
 
   /* USER CODE END TIM7_Init 1 */
   htim7.Instance = TIM7;
-  htim7.Init.Prescaler = 32000 - 1;
+  htim7.Init.Prescaler = 32000-1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 250 - 1;
+  htim7.Init.Period = 250-1;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
@@ -395,13 +406,14 @@ static void MX_TIM7_Init(void)
   /* USER CODE BEGIN TIM7_Init 2 */
 
   /* USER CODE END TIM7_Init 2 */
+
 }
 
 /**
- * @brief TIM16 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief TIM16 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM16_Init(void)
 {
 
@@ -413,9 +425,9 @@ static void MX_TIM16_Init(void)
 
   /* USER CODE END TIM16_Init 1 */
   htim16.Instance = TIM16;
-  htim16.Init.Prescaler = 32000 - 1;
+  htim16.Init.Prescaler = 32000-1;
   htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim16.Init.Period = 500 - 1;
+  htim16.Init.Period = 500-1;
   htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim16.Init.RepetitionCounter = 0;
   htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -426,13 +438,14 @@ static void MX_TIM16_Init(void)
   /* USER CODE BEGIN TIM16_Init 2 */
 
   /* USER CODE END TIM16_Init 2 */
+
 }
 
 /**
- * @brief USART2 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_USART2_UART_Init(void)
 {
 
@@ -460,11 +473,12 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
 }
 
 /**
- * Enable DMA controller clock
- */
+  * Enable DMA controller clock
+  */
 static void MX_DMA_Init(void)
 {
 
@@ -478,13 +492,14 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel7_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
+
 }
 
 /**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -498,13 +513,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3 | GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3|GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA3 PA6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_6;
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -526,284 +541,286 @@ static void MX_GPIO_Init(void)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-  if (huart->Instance == USART2)
-  {
+	if (huart->Instance == USART2) {
 
-    if (manual_flag)
-    {
-      duration_buffer[4] = '\0';
-      tick_counter = 0;
-      remaining_seconds = 0;
-      sscanf(duration_buffer, "%d", &remaining_seconds);
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
-      is_recording = 1;
-      HAL_TIM_Base_Start_IT(&htim7);
-      manual_flag = 0;
-      HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
-    }
+		if (manual_flag) {
+			duration_buffer[4] = '\0';
+			tick_counter = 0;
+			remaining_seconds = 0;
+			sscanf(duration_buffer, "%d", &remaining_seconds);
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
+			is_recording = 1;
+			recording_just_started = 1;
+			HAL_TIM_Base_Start_IT(&htim7);
+			manual_flag = 0;
+			HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
+		}
 
-    else
-    {
-      if (strncmp(state, "manual  ", 8) == 0)
-      {
-        current_mode = 2;
-        manual_flag = 1;
-        HAL_UART_Receive_IT(&huart2, (uint8_t *)duration_buffer, 4);
-      }
+		else {
+			if (strncmp(state, "manual  ", 8) == 0) {
+				current_mode = 2;
+				manual_flag = 1;
+				HAL_UART_Receive_IT(&huart2, (uint8_t *)duration_buffer, 4);
+			}
 
-      else if (strncmp(state, "distance", 8) == 0)
-      {
-        current_mode = 1;
-        HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
-      }
+			else if (strncmp(state, "distance", 8) == 0) {
+				current_mode = 1;
+				HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
+			}
 
-      else
-      {
-        HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
-      }
-    }
-  }
+			else {
+				HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
+			}
+		}
+
+
+
+	}
 }
+
 
 void process_audio(uint16_t start_idx, uint16_t end_idx, uint8_t *tx_buf)
 {
-  if (is_recording)
-  {
-    int pack_idx = 0;
+	if (is_recording) {
+		int pack_idx = 0;
+		uint8_t checksum = 0;
 
-    static uint16_t last_good_a = AUDIO_MIDPOINT;
-    static uint16_t last_good_b = AUDIO_MIDPOINT;
+		static uint16_t last_good_a = AUDIO_MIDPOINT;
+		static uint16_t last_good_b = AUDIO_MIDPOINT;
 
-    for (int i = start_idx; i < end_idx; i += 2)
-    {
-      uint16_t raw_a = spi_rx_buffer[i];
-      uint16_t raw_b = spi_rx_buffer[i + 1];
-      uint16_t a, b;
+        // NEW: Wipe the ghost state if this is a brand new recording!
+        if (recording_just_started) {
+            last_good_a = AUDIO_MIDPOINT;
+            last_good_b = AUDIO_MIDPOINT;
+            sum_a = AUDIO_MIDPOINT * 3;
+            sum_b = AUDIO_MIDPOINT * 3;
+            current_pos_a = 0;
+            current_pos_b = 0;
+            for(int i=0; i<3; i++) {
+                filter_buffer_a[i] = AUDIO_MIDPOINT;
+                filter_buffer_b[i] = AUDIO_MIDPOINT;
+            }
+            recording_just_started = 0; // Turn off until next recording
+        }
 
-      if ((raw_a & 0xF000) == 0xA000)
-      {
-        a = raw_a & 0x0FFF;
-      }
+		tx_buf[pack_idx++] = 0xAA;
+		tx_buf[pack_idx++] = 0x55;
 
-      else
-      {
-        a = last_good_a;
-      }
+		for (int i = start_idx; i < end_idx; i+= 2) {
+			uint16_t raw_a = spi_rx_buffer[i];
+			uint16_t raw_b = spi_rx_buffer[i+1];
+			uint16_t a, b;
 
-      if ((raw_b & 0xF000) == 0xA000)
-      {
-        b = raw_b & 0x0FFF;
-      }
+			if (((raw_a & 0xF000) == 0xA000) && ((raw_b & 0xF000) == 0xA000)) {
+				a = raw_a & 0x0FFF;
+				b = raw_b & 0x0FFF;
+				last_good_a = a;
+				last_good_b = b;
+			} else {
+				a = last_good_a;
+				b = last_good_b;
+			}
 
-      else
-      {
-        b = last_good_b;
-      }
+            // SEPARATED DSP FILTERS (No more cross-talk!)
+			a = moving_average_filter(filter_buffer_a, &sum_a, current_pos_a, 3, a);
+			current_pos_a = (current_pos_a + 1) % 3;
 
-      // 2. NOW it is safe to mask the 12 bits and filter
-      a = outlier_rejection(a & 0x0FFF, &last_valid);
-      a = moving_average_filter(filter_buffer, &sum, current_pos, 3, a);
-      current_pos = (current_pos + 1) % 3;
+	        b = moving_average_filter(filter_buffer_b, &sum_b, current_pos_b, 3, b);
+	        current_pos_b = (current_pos_b + 1) % 3;
 
-      b = outlier_rejection(b & 0x0FFF, &last_valid);
-      b = moving_average_filter(filter_buffer, &sum, current_pos, 3, b);
-      current_pos = (current_pos + 1) % 3;
+	        // Pack two 12-bit samples into 3 bytes
+	        uint8_t byte_1 = (a >> 4) & 0xFF;
+	        uint8_t byte_2 = ((a & 0x0F) << 4) | ((b >> 8) & 0x0F);
+	        uint8_t byte_3 = b & 0xFF;
 
-      // 3. PACK two 12-bit samples into 3 bytes
-      tx_buf[pack_idx++] = (a >> 4) & 0xFF;
-      tx_buf[pack_idx++] = ((a & 0x0F) << 4) | ((b >> 8) & 0x0F);
-      tx_buf[pack_idx++] = b & 0xFF;
-    }
+	        tx_buf[pack_idx++] = byte_1;
+	        checksum ^= byte_1;
 
-    // 4. NON-BLOCKING TRANSMIT (Fixes the dropped audio!)
-    // Use '_IT' so the CPU doesn't freeze inside the DMA interrupt.
-    if (huart2.gState == HAL_UART_STATE_READY)
-    {
-      HAL_UART_Transmit_DMA(&huart2, tx_buf, pack_idx);
-    }
-  }
+	        tx_buf[pack_idx++] = byte_2;
+	        checksum ^= byte_2;
+
+	        tx_buf[pack_idx++] = byte_3;
+	        checksum ^= byte_3;
+		}
+
+		tx_buf[pack_idx++] = checksum;
+
+		if (huart2.gState == HAL_UART_STATE_READY) {
+			HAL_UART_Transmit_DMA(&huart2, tx_buf, pack_idx);
+		}
+	}
 }
 
 /*void process_audio(uint16_t start_idx, uint16_t end_idx, uint8_t *tx_buf)
 {
-  if (is_recording) {
-    int pack_idx = 0;
+	if (is_recording) {
+		int pack_idx = 0;
 
-    for (int i = start_idx; i < end_idx; i+= 2) {
+		for (int i = start_idx; i < end_idx; i+= 2) {
             // 1. Grab the real SPI data and safely mask to 12 bits
-      uint16_t a = spi_rx_buffer[i] & 0x0FFF;
-          uint16_t b = spi_rx_buffer[i+1] & 0x0FFF;
+			uint16_t a = spi_rx_buffer[i] & 0x0FFF;
+	        uint16_t b = spi_rx_buffer[i+1] & 0x0FFF;
 
-          // 2. Pack two 12-bit samples into 3 bytes
-          tx_buf[pack_idx++] = (a >> 4) & 0xFF;
-          tx_buf[pack_idx++] = ((a & 0x0F) << 4) | ((b >> 8) & 0x0F);
-          tx_buf[pack_idx++] = b & 0xFF;
-    }
+	        // 2. Pack two 12-bit samples into 3 bytes
+	        tx_buf[pack_idx++] = (a >> 4) & 0xFF;
+	        tx_buf[pack_idx++] = ((a & 0x0F) << 4) | ((b >> 8) & 0x0F);
+	        tx_buf[pack_idx++] = b & 0xFF;
+		}
 
         // 3. Fire the UART DMA to send it to Python
-    if (huart2.gState == HAL_UART_STATE_READY) {
-      HAL_UART_Transmit_DMA(&huart2, tx_buf, pack_idx);
-    }
-  }
+		if (huart2.gState == HAL_UART_STATE_READY) {
+			HAL_UART_Transmit_DMA(&huart2, tx_buf, pack_idx);
+		}
+	}
 }*/
+
+
+
 
 void HAL_SPI_RxHalfCpltCallback(SPI_HandleTypeDef *hspi)
 {
-  if (hspi == &hspi1)
-  {
-    process_audio(0, AUDIO_BUFFER_SIZE / 2, tx_buf_a);
-  }
+	if (hspi == &hspi1) {
+		process_audio(0, AUDIO_BUFFER_SIZE / 2, tx_buf_a);
+	}
 }
 
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-  if (hspi == &hspi1)
-  {
-    process_audio(AUDIO_BUFFER_SIZE / 2, AUDIO_BUFFER_SIZE, tx_buf_b);
-  }
+	if (hspi == &hspi1) {
+		process_audio(AUDIO_BUFFER_SIZE / 2, AUDIO_BUFFER_SIZE, tx_buf_b);
+	}
 }
+
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  if (htim == &htim16)
-  {
-    HCSR04_Read();
+	if (htim == &htim16) {
+		HCSR04_Read();
 
-    if (current_mode == 1)
-    {
-      if (distance_cooldown > 0)
-      {
-        --distance_cooldown;
-      }
+		if (current_mode == 1) {
+			if (distance_cooldown > 0) {
+				--distance_cooldown;
+			}
 
-      else
-      {
-        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
-        is_recording = 0;
-      }
-    }
-  }
+			else {
+				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
+				is_recording = 0;
+			}
+		}
+	}
 
-  if (htim == &htim7)
-  {
-    if (current_mode == 2)
-    {
-      tick_counter++;
+	if (htim == &htim7) {
+		if (current_mode == 2) {
+			tick_counter++;
 
-      if (tick_counter >= 4)
-      {
-        remaining_seconds--;
-        tick_counter = 0;
-      }
-    }
+			if (tick_counter >= 4) {
+				remaining_seconds--;
+				tick_counter = 0;
+			}
+		}
 
-    if (remaining_seconds <= 0)
-    {
-      is_recording = 0;
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
-      HAL_TIM_Base_Stop_IT(&htim7);
-    }
-  }
+		if (remaining_seconds <= 0) {
+			is_recording = 0;
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
+			HAL_TIM_Base_Stop_IT(&htim7);
+		}
+	}
 }
 
 void delay_us(uint16_t delay)
 {
-  __HAL_TIM_SET_COUNTER(&htim6, 0);
-  while (__HAL_TIM_GET_COUNTER(&htim6) < delay)
-  {
-    ;
-  }
+	__HAL_TIM_SET_COUNTER(&htim6, 0);
+	while (__HAL_TIM_GET_COUNTER(&htim6) < delay) {
+		;
+	}
 }
 
 void HCSR04_Read(void)
 {
-  flag = 0;
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
-  delay_us(10);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+	flag = 0;
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+	delay_us(10);
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
 }
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
-  if (hspi->Instance == SPI1)
-  {
-    // Check if the specific error is an Overrun
+    if (hspi->Instance == SPI1)
+    {
+        // Check if the specific error is an Overrun
 
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_3);
-    // DEBUG: Toggle your PA3 LED so you can see the crash!
-    __HAL_SPI_CLEAR_OVRFLAG(hspi);
-    __HAL_SPI_CLEAR_FREFLAG(hspi);
-    HAL_SPI_Receive_DMA(&hspi1, (uint8_t *)spi_rx_buffer, AUDIO_BUFFER_SIZE);
 
-    // The HAL has already cleared the OVR flag at this point,
-    // but the interrupt is now STOPPED. You must restart it:
-  }
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_3);
+		// DEBUG: Toggle your PA3 LED so you can see the crash!
+		__HAL_SPI_CLEAR_OVRFLAG(hspi);
+		__HAL_SPI_CLEAR_FREFLAG(hspi);
+		HAL_SPI_Receive_DMA(&hspi1, (uint8_t *)spi_rx_buffer, AUDIO_BUFFER_SIZE);
+
+            // The HAL has already cleared the OVR flag at this point,
+            // but the interrupt is now STOPPED. You must restart it:
+
+    }
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-  if (huart == &huart2)
-  {
-    HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
-  }
+	if (huart == &huart2) {
+		HAL_UART_Receive_IT(&huart2, (uint8_t *)state, 8);
+	}
 }
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-  if ((htim == &htim1) && (htim->Channel == 1))
-  {
-    if (!flag)
-    {
-      count_1 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
-      flag = 1;
-    }
+	if ((htim == &htim1) && (htim->Channel == 1)) {
+		if (!flag) {
+			count_1 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
+			flag = 1;
+		}
 
-    else
-    {
-      count_2 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
-      __HAL_TIM_SET_COUNTER(htim, 0);
-      distance = (uint16_t)(count_2 - count_1) / 58.0;
 
-      if (current_mode == 1)
-      {
-        if (distance < min_distance)
-        {
-          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
-          is_recording = 1;
-          distance_cooldown = 3;
-        }
-      }
-      flag = 0;
-    }
-  }
+	else {
+		count_2 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
+		__HAL_TIM_SET_COUNTER(htim, 0);
+		distance = (uint16_t) (count_2-count_1)/ 58.0;
+
+		if (current_mode == 1) {
+			if (distance < min_distance) {
+				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
+				is_recording = 1;
+				recording_just_started = 1;
+				distance_cooldown = 3;
+			}
+		}
+		flag = 0;
+	}
+	}
 }
 
 uint16_t moving_average_filter(uint16_t *arr, int *sum, int pos, int len, uint16_t nextNum)
 {
-  *sum = *sum - arr[pos] + nextNum;
-  arr[pos] = nextNum;
+	*sum  = *sum - arr[pos] + nextNum;
+	arr[pos] = nextNum;
 
-  return (*sum / len);
+	return (*sum / len);
 }
 
 uint16_t outlier_rejection(uint16_t sample, uint16_t *last_valid)
 {
-  int diff = sample - AUDIO_MIDPOINT;
+	int diff = sample - AUDIO_MIDPOINT;
 
-  if (abs(diff) > DEVIATION_LIMIT)
-  {
-    return *last_valid;
-  }
+	if (abs(diff) > DEVIATION_LIMIT) {
+		return *last_valid;
+	}
 
-  *last_valid = sample;
-  return sample;
+	*last_valid = sample;
+	return sample;
 }
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -815,14 +832,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

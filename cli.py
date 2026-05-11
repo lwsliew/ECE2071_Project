@@ -4,6 +4,10 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 
+PAYLOAD_SIZE = 3000
+PACKET_HEADER_1 = b'\xaa'
+PACKET_HEADER_2 = b'\x55'
+
 def print_header():
     print("\n" + "=" * 55)
     print("\tECE2071 Audio Sampling System\t")
@@ -36,6 +40,39 @@ def get_output_preferences():
             break
     
     return wav, png, csv
+
+def verify_packet(ser):
+    while True:
+        char1 = ser.read(1)
+        if not char1:
+            return None
+
+        if char1 == PACKET_HEADER_1:
+            char2 = ser.read(1)
+            if char2 == PACKET_HEADER_2:
+                break
+
+    data = ser.read(PAYLOAD_SIZE + 1)
+
+    if len(data) != (PAYLOAD_SIZE + 1):
+        print("Incomplete packet read")
+        return None
+    
+    payload = data[:-1]
+    received_checksum = data[-1]
+
+    calculated_checksum = 0
+
+    for i in payload:
+        calculated_checksum ^= i
+
+    if calculated_checksum == received_checksum:
+        return payload
+
+    else:
+        print("Checksum mismatch!")
+        return None
+
 
 def process_data(file_path, wav, png, csv, sample_rate=44100):
     print("\n[ Processing Data ]")
@@ -127,27 +164,26 @@ def main():
             raw_data = bytearray()
             start_time = time.time()
             
-            while len(raw_data) < total_expected:
-                bytes_waiting = ser.in_waiting
-                if bytes_waiting > 0:
-                    # Read what's available, but don't over-read past the expected total
-                    chunk_size = min(bytes_waiting, total_expected - len(raw_data))
-                    raw_data.extend(ser.read(chunk_size))
+            bytes_per_sec = 66150
+            total_expected_bytes = duration * bytes_per_sec
+            packets_needed = (total_expected_bytes // PAYLOAD_SIZE) + 1
+            packets_received = 0
+            
+            while packets_received < packets_needed:
+                clean_payload = verify_packet(ser)
+                if clean_payload:
+                    raw_data.extend(clean_payload)
+                    packets_received += 1
                 
-                # Timeout safety net (Duration + 2.0 seconds)
+                # Timeout safety net
                 if time.time() - start_time > duration + 2.0:
+                    print("[!] Recording timed out.")
                     break
             
             with open("raw_ADC_values.data", "wb") as f:
                 f.write(raw_data)
                 
-            difference = abs(total_expected - len(raw_data))
-            if difference < 3000:
-                print("[*] Recording complete. 100% Data integrity verified.")
-
-            else:
-                print(f"[!] Warning: Expected {total_expected} bytes but captured {len(raw_data)}.")
-
+            print(f"[*] Recording complete. Captured {len(raw_data)} verified bytes.")
             process_data("raw_ADC_values.data", wav, png, csv)
 
         # -----------------------------------------
@@ -170,43 +206,48 @@ def main():
                     print("\nWaiting for ultrasonic trigger... (Wave hand to start)")
                     ser.reset_input_buffer()
                     started_receiving = False
+                    raw_data = bytearray()
+                    last_receive_time = time.time()
                     
-                    with open("raw_ADC_values.data", "wb") as file_1:
-                        last_receive_time = time.time()
-                        
-                        while True:
-                            bytestoRead = ser.in_waiting
-                            
-                            if bytestoRead > 0:
-                                file_1.write(ser.read(bytestoRead))
+                    while True:
+                        # --- UPDATED DISTANCE LOOP ---
+                        # If there is enough data in the buffer to start hunting for a packet...
+                        if ser.in_waiting > 0:
+                            clean_payload = verify_packet(ser)
+                            if clean_payload:
+                                raw_data.extend(clean_payload)
                                 last_receive_time = time.time()
                                 
                                 if not started_receiving:
                                     print("[*] Object Detected! Recording audio...") 
                                     started_receiving = True
-                            else:
-                                # Wait for 1 full second of silence before closing the file
-                                if started_receiving and (time.time() - last_receive_time > 0.5):
-                                    print("[*] Object removed. Sensor cooldown finished.")
-                                    break 
-                                    
+                        else:
+                            # Wait for 1 full second of silence before closing the file
+                            if started_receiving and (time.time() - last_receive_time > 0.5):
+                                print("[*] Object removed. Sensor cooldown finished.")
+                                
+                                # Write all verified data to file at the end
+                                with open("raw_ADC_values.data", "wb") as file_1:
+                                    file_1.write(raw_data)
+                                break 
+                                
                     # Once a trigger finishes, process the data immediately
-                    process_data("raw_ADC_values.data", wav, png, csv)
+                    if len(raw_data) > 0:
+                        process_data("raw_ADC_values.data", wav, png, csv)
                     
             except KeyboardInterrupt:
-                print("\n\n[*] Exiting Distance Trigger Mode...")
-                # Optional: Send a dummy byte or command to ensure STM32 state clears if needed
+                print("\nExiting Distance Trigger Mode...")
 
         # -----------------------------------------
         # EXIT APPLICATION
         # -----------------------------------------
-        elif choice == "manual":
-            print("\n[*] Closing port and exiting application. Goodbye!")
+        elif choice == "exit": 
+            print("\nClosing port and exiting application. Goodbye!")
             ser.close()
             break
 
         else:
-            print("\n[!] Invalid selection. Please choose 1, 2, or 3.")
+            print("\nInvalid selection. Please choose 'manual', 'distance', or 'exit'.")
 
 if __name__ == "__main__":
     main()
