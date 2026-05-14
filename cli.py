@@ -79,7 +79,7 @@ def process_data(file_path, wav, png, csv, sample_rate=44100):
     
     # 1. WAV Generation (Handled by C Executable)
     if wav:
-        print(" -> Compiling/Converting to .wav format...")
+        print("Compiling/Converting to .wav format...")
         try:
             subprocess.run(["convert.exe", file_path, "recorded_audio.wav"], check=True)
             print("    [Success] Saved 'recorded_audio.wav'")
@@ -88,7 +88,7 @@ def process_data(file_path, wav, png, csv, sample_rate=44100):
             
     # 2. Numpy/Matplotlib Math (Only run if user asked for CSV or PNG)
     if png or csv:
-        print(" -> Decoding raw bits for graphing/logging...")
+        print("Decoding raw bits for graphing...")
         raw_bytes = np.fromfile(file_path, dtype=np.uint8)
         n = len(raw_bytes) // 3
         
@@ -156,7 +156,6 @@ def main():
             duration_bytes = str(duration).ljust(4).encode()
             ser.write(duration_bytes)
 
-            total_expected = int(duration * 66150)
             print(f"\n[*] Recording for {duration} seconds... Please wait.")
             
             ser.reset_input_buffer()
@@ -169,7 +168,7 @@ def main():
             packets_needed = (total_expected_bytes // PAYLOAD_SIZE) + 1
             packets_received = 0
             
-            while packets_received < packets_needed:
+            while packets_received < packets_needed * 0.95:
                 clean_payload = verify_packet(ser)
                 if clean_payload:
                     raw_data.extend(clean_payload)
@@ -199,10 +198,11 @@ def main():
             wav, png, csv = get_output_preferences()
 
             ser.write(b"distance")
-            print("\n[*] Distance Mode Active. [Press Ctrl+C to return to Main Menu]")
+            print("\nDistance Mode Active. [Press Ctrl+C to return to Main Menu]")
+            done = False
             
             try:
-                while True:
+                while not done:
                     print("\nWaiting for ultrasonic trigger... (Wave hand to start)")
                     ser.reset_input_buffer()
                     started_receiving = False
@@ -229,6 +229,8 @@ def main():
                                 # Write all verified data to file at the end
                                 with open("raw_ADC_values.data", "wb") as file_1:
                                     file_1.write(raw_data)
+
+                                done = True
                                 break 
                                 
                     # Once a trigger finishes, process the data immediately
